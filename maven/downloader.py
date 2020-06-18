@@ -1,16 +1,18 @@
 import hashlib
 import os
-from .requestor import Requestor,RequestException
-from .resolver import Resolver
-from .artifact import Artifact
+from functools import partial
 import sys
 import getopt
+
+from .requestor import Requestor, RequestException
+from .resolver import Resolver
+from .artifact import Artifact
+
 
 class Downloader(object):
     def __init__(self, base="http://repo1.maven.org/maven2", username=None, password=None):
         self.requestor = Requestor(username, password)
         self.resolver = Resolver(base, self.requestor)
-
 
     def download(self, artifact, filename=None, suppress_log=False):
         filename = artifact.get_filename(filename)
@@ -18,25 +20,26 @@ class Downloader(object):
         if not self.verify_md5(filename, url + ".md5"):
             if not suppress_log:
                 print("Downloading artifact " + str(artifact))
-                hook=self._chunk_report
+                hook = self._chunk_report
             else:
-                hook=self._chunk_report_suppress
+                hook = self._chunk_report_suppress
 
-            onError = lambda uri, err: self._throwDownloadFailed("Failed to download artifact " + str(artifact) + "from " + uri)
-            response = self.requestor.request(url, onError, lambda r: r)
+            on_error = lambda uri, err: self._throwDownloadFailed(
+                "Failed to download artifact " + str(artifact) + "from " + uri)
+            response = self.requestor.request(url, on_error, lambda r: r)
 
             if response:
-                with open(filename, 'w') as f:
+                with open(filename, 'wb') as f:
                     self._write_chunks(response, f, report_hook=hook)
                 if not suppress_log:
                     print("Downloaded artifact %s to %s" % (artifact, filename))
-                return (artifact, True)
+                return artifact, True
             else:
-                return (artifact, False)
+                return artifact, False
         else:
             if not suppress_log:
                 print("%s is already up to date" % artifact)
-            return (artifact, True)
+            return artifact, True
 
     def _throwDownloadFailed(self, msg):
         raise RequestException(msg)
@@ -46,15 +49,15 @@ class Downloader(object):
 
     def _chunk_report(self, bytes_so_far, chunk_size, total_size):
         percent = float(bytes_so_far) / total_size
-        percent = round(percent*100, 2)
+        percent = round(percent * 100, 2)
         sys.stdout.write("Downloaded %d of %d bytes (%0.2f%%)\r" %
-                 (bytes_so_far, total_size, percent))
+                         (bytes_so_far, total_size, percent))
 
         if bytes_so_far >= total_size:
             sys.stdout.write('\n')
 
     def _write_chunks(self, response, file, chunk_size=8192, report_hook=None):
-        total_size = response.info().getheader('Content-Length').strip()
+        total_size = response.getheader('Content-Length')
         total_size = int(total_size)
         bytes_so_far = 0
 
@@ -76,16 +79,16 @@ class Downloader(object):
             return False
         else:
             local_md5 = self._local_md5(file)
-            onError = lambda uri, err: self._throwDownloadFailed("Failed to download MD5 from " + uri)
-            remote = self.requestor.request(remote_md5, onError, lambda r: r.read())
-            return local_md5 == remote
+            on_error = lambda uri, err: self._throwDownloadFailed("Failed to download MD5 from " + uri)
+            remote = self.requestor.request(remote_md5, on_error, lambda r: r.read())
+            return str.encode(local_md5) == remote
 
-    def _local_md5(self, file):
-        md5 = hashlib.md5()
-        with open(file, 'rb') as f:
-            for chunk in iter(lambda: f.read(8192), ''):
-                md5.update(chunk)
-        return md5.hexdigest()
+    def _local_md5(self, filename, chunksize=2 ** 15, bufsize=-1):
+        m = hashlib.md5()
+        with open(filename, 'rb', bufsize) as f:
+            for chunk in iter(partial(f.read, chunksize), b''):
+                m.update(chunk)
+        return m.hexdigest()
 
 
 __doc__ = """
@@ -108,17 +111,18 @@ __doc__ = """
      %(program_name)s "org.apache.solr:solr:war:3.5.0"
   """
 
+
 def main():
     try:
         opts, args = getopt.getopt(sys.argv[1:], "m:u:p:", ["maven-repo=", "username=", "password="])
     except getopt.GetoptError as err:
         # print help information and exit:
-        print str(err) # will print something like "option -a not recognized"
+        print(err)  # will print something like "option -a not recognized"
         usage()
         sys.exit(2)
 
     if not len(args):
-        print "No maven coordiantes supplied"
+        print("No maven coordiantes supplied")
         usage()
         sys.exit(2)
     else:
@@ -149,12 +153,13 @@ def main():
                 usage()
                 sys.exit(1)
         except RequestException as e:
-            print e.msg
+            print(e.msg)
             sys.exit(1)
 
 
 def usage():
     print(__doc__ % {'program_name': os.path.basename(sys.argv[0])})
+
 
 if __name__ == '__main__':
     main()

@@ -1,33 +1,32 @@
 import base64
 
-try:
-    # For Python 3.0 and later
-    from urllib.request import urlopen, Request
-    from urllib.error import URLError, HTTPError
-except ImportError:
-    # Fall back to Python 2's urllib2
-    from urllib2 import Request, urlopen, URLError, HTTPError
+from urllib.request import urlopen, Request
+from urllib.error import URLError, HTTPError
+
+UTF_8 = 'utf-8'
+
 
 class Requestor(object):
-    def __init__(self, username = None, password = None, user_agent = "Maven Artifact Downloader/1.0"):
+    def __init__(self, username=None, password=None, user_agent="Maven Artifact Downloader/1.0"):
         self.user_agent = user_agent
         self.username = username
         self.password = password
 
-
-    def request(self, url, onFail, onSuccess):
+    def request(self, url, on_fail, on_success):
         headers = {"User-Agent": self.user_agent}
         if self.username and self.password:
-            headers["Authorization"] = "Basic " + base64.b64encode(self.username + ":" + self.password)
+            auth_header = base64.b64encode(bytes('{}:{}'.format(self.username, self.password), UTF_8)).decode(UTF_8)
+            headers["Authorization"] = "Basic " + auth_header
         req = Request(url, None, headers)
         try:
             response = urlopen(req)
         except HTTPError as e:
-            onFail(url, e)
+            on_fail(url, e)
         except URLError as e:
-            onFail(url, e)
+            on_fail(url, e)
         else:
-            return onSuccess(response)
+            return on_success(response)
+
 
 class RequestException(Exception):
     def __init__(self, msg):
